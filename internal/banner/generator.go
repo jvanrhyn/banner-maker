@@ -4,9 +4,11 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"go/format"
 	"os"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/mbndr/figlet4go"
@@ -136,6 +138,80 @@ func Colorize(raw string, opts ColorOptions) string {
 // Save writes content to the file at path, creating or truncating as needed.
 func Save(content, path string) error {
 	return os.WriteFile(path, []byte(content), 0o644)
+}
+
+// GoIdent derives safe Go identifiers from word.
+// varName is the []string variable name (e.g. "mycliLogo").
+// funcName is the exported function name (e.g. "MycliBanner").
+func GoIdent(word string) (varName, funcName string) {
+	// Keep only alphanumeric, lowercase the whole thing
+	var sb strings.Builder
+	for _, r := range strings.ToLower(word) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			sb.WriteRune(r)
+		}
+	}
+	slug := sb.String()
+	if slug == "" {
+		slug = "banner"
+	}
+	// Ensure slug starts with a letter (prepend 'b' if it starts with a digit)
+	if unicode.IsDigit([]rune(slug)[0]) {
+		slug = "b" + slug
+	}
+	varName = slug + "Logo"
+	runes := []rune(slug)
+	funcName = string(unicode.ToUpper(runes[0])) + string(runes[1:]) + "Banner"
+	return
+}
+
+// GenerateGoSource returns a gofmt-formatted Go source file containing:
+//   - a var {word}Logo = []string{...} with each line of the banner+tagline
+//   - a func {Word}Banner() string that joins and returns the lines
+func GenerateGoSource(word, rawBanner string, tag Tagline) (string, error) {
+	full := AppendTagline(rawBanner, tag)
+
+	// Collect non-empty content lines
+	var lines []string
+	for _, l := range strings.Split(strings.TrimRight(full, "\n"), "\n") {
+		lines = append(lines, l)
+	}
+
+	varName, funcName := GoIdent(word)
+
+	// Build the []string literal entries
+	var entries strings.Builder
+	for _, l := range lines {
+		entries.WriteString(fmt.Sprintf("\t\t%q,\n", l))
+	}
+
+	src := fmt.Sprintf(`package main
+
+import "strings"
+
+var %s = []string{
+%s}
+
+// %s returns the banner art as a single string.
+func %s() string {
+	return strings.Join(%s, "\n")
+}
+`, varName, entries.String(), funcName, funcName, varName)
+
+	formatted, err := format.Source([]byte(src))
+	if err != nil {
+		return "", fmt.Errorf("go/format: %w", err)
+	}
+	return string(formatted), nil
+}
+
+// SaveGoFile generates a Go source file for the given banner and writes it to path.
+func SaveGoFile(word, rawBanner string, tag Tagline, path string) error {
+	src, err := GenerateGoSource(word, rawBanner, tag)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(src), 0o644)
 }
 
 // Tagline represents an optional line of text appended below a banner.

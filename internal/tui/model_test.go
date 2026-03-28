@@ -1,6 +1,7 @@
 package tui_test
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -75,6 +76,16 @@ func TestPreviewReject_BackToInput(t *testing.T) {
 }
 
 func TestPreviewConfirm_TransitionsToDone(t *testing.T) {
+	// Save writes to CWD — redirect to a temp dir to avoid polluting internal/tui
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chdir(orig) }) //nolint:errcheck
+	if err := os.Chdir(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+
 	var m tea.Model = tui.InitialModel()
 	m = typeWord(m, "HI")
 	m = sendKey(m, "enter")
@@ -88,7 +99,7 @@ func TestPreviewConfirm_TransitionsToDone(t *testing.T) {
 	}
 
 	view := updated.View()
-	// Done screen should mention "Saved" or "banner.txt"
+	// Done screen should mention "Saved" or "hibanner.go"
 	if !strings.Contains(view, "Saved") && !strings.Contains(view, "banner") {
 		t.Errorf("expected done/saved confirmation in view, got: %s", view)
 	}

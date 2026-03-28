@@ -31,8 +31,6 @@ const (
 	tabStops         = 5  // total tab positions (0..4)
 )
 
-const saveFile = "banner.txt"
-
 // ─── Styles ─────────────────────────────────────────────────────────────────
 
 var (
@@ -89,7 +87,8 @@ type Model struct {
 	inputs    [inputCount]textinput.Model
 	focusIdx  int
 	align     string // "left" or "right"
-	banner    string // raw text (saved to file)
+	word      string // the input word (used for filename + Go identifier)
+	banner    string // raw figlet output
 	errMsg    string
 	savedPath string
 }
@@ -230,6 +229,7 @@ func (m Model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.errMsg = ""
+		m.word = word
 		m.banner = art
 		m.screen = screenPreview
 		return m, nil
@@ -262,8 +262,7 @@ func (m Model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) updatePreview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "y", "enter":
-		full := banner.AppendTagline(m.banner, m.taglineOpts())
-		return m, doSave(full)
+		return m, doSave(m.word, m.banner, m.taglineOpts())
 	case "n", "esc":
 		m.screen = screenInput
 		m.inputs[fieldWord].SetValue("")
@@ -281,13 +280,17 @@ func (m Model) updatePreview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// doSave is an async Cmd that writes the raw banner to disk.
-func doSave(content string) tea.Cmd {
+// doSave is an async Cmd that generates a Go source file and writes it to disk.
+func doSave(word, rawBanner string, tag banner.Tagline) tea.Cmd {
 	return func() tea.Msg {
-		if err := banner.Save(content, saveFile); err != nil {
+		varName, _ := banner.GoIdent(word)
+		// Strip the "Logo" suffix to get the slug for the filename
+		slug := strings.TrimSuffix(varName, "Logo")
+		path := slug + "banner.go"
+		if err := banner.SaveGoFile(word, rawBanner, tag, path); err != nil {
 			return saveErrMsg{err}
 		}
-		return savedMsg{path: saveFile}
+		return savedMsg{path: path}
 	}
 }
 

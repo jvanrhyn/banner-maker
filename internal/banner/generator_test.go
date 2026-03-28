@@ -291,3 +291,92 @@ func TestValidateTaglineAlign_Invalid(t *testing.T) {
 	}
 }
 
+func TestGoIdent_Simple(t *testing.T) {
+	varName, funcName := banner.GoIdent("MYCLI")
+	if varName != "mycliLogo" {
+		t.Errorf("GoIdent varName = %q, want %q", varName, "mycliLogo")
+	}
+	if funcName != "MycliBanner" {
+		t.Errorf("GoIdent funcName = %q, want %q", funcName, "MycliBanner")
+	}
+}
+
+func TestGoIdent_Lowercase(t *testing.T) {
+	varName, funcName := banner.GoIdent("hello")
+	if varName != "helloLogo" {
+		t.Errorf("GoIdent varName = %q, want %q", varName, "helloLogo")
+	}
+	if funcName != "HelloBanner" {
+		t.Errorf("GoIdent funcName = %q, want %q", funcName, "HelloBanner")
+	}
+}
+
+func TestGoIdent_StripNonAlphanumeric(t *testing.T) {
+	varName, funcName := banner.GoIdent("my-cli 2")
+	if varName != "mycli2Logo" {
+		t.Errorf("GoIdent varName = %q, want %q", varName, "mycli2Logo")
+	}
+	if funcName != "Mycli2Banner" {
+		t.Errorf("GoIdent funcName = %q, want %q", funcName, "Mycli2Banner")
+	}
+}
+
+func TestGenerateGoSource_ValidGo(t *testing.T) {
+	raw, _ := banner.Generate("MYCLI")
+	src, err := banner.GenerateGoSource("MYCLI", raw, banner.Tagline{})
+	if err != nil {
+		t.Fatalf("GenerateGoSource returned error: %v", err)
+	}
+	if !strings.Contains(src, "package main") {
+		t.Error("expected 'package main' in generated source")
+	}
+	if !strings.Contains(src, "mycliLogo") {
+		t.Error("expected 'mycliLogo' var in generated source")
+	}
+	if !strings.Contains(src, "func MycliBanner()") {
+		t.Error("expected 'func MycliBanner()' in generated source")
+	}
+	if !strings.Contains(src, "strings.Join") {
+		t.Error("expected 'strings.Join' in generated source")
+	}
+}
+
+func TestGenerateGoSource_ContainsBannerLines(t *testing.T) {
+	raw, _ := banner.Generate("A")
+	src, err := banner.GenerateGoSource("A", raw, banner.Tagline{})
+	if err != nil {
+		t.Fatalf("GenerateGoSource returned error: %v", err)
+	}
+	// Banner art characters must appear in the generated source
+	if !strings.Contains(src, "█") {
+		t.Error("expected banner block character in generated source")
+	}
+}
+
+func TestGenerateGoSource_WithTagline(t *testing.T) {
+	raw, _ := banner.Generate("A")
+	src, err := banner.GenerateGoSource("A", raw, banner.Tagline{Text: "my subtitle", Align: "left"})
+	if err != nil {
+		t.Fatalf("GenerateGoSource returned error: %v", err)
+	}
+	if !strings.Contains(src, "my subtitle") {
+		t.Error("expected tagline text in generated source")
+	}
+}
+
+func TestSaveGoFile_WritesFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "testbanner.go")
+	raw, _ := banner.Generate("TEST")
+	if err := banner.SaveGoFile("TEST", raw, banner.Tagline{}, path); err != nil {
+		t.Fatalf("SaveGoFile returned error: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("could not read saved file: %v", err)
+	}
+	if !strings.Contains(string(data), "package main") {
+		t.Error("saved file missing 'package main'")
+	}
+}
+
