@@ -163,26 +163,51 @@ func TestTagline_AppearsInPreview(t *testing.T) {
 	}
 }
 
-func TestTagline_InvalidAlignment_ShowsError(t *testing.T) {
+func TestAlignToggle_RightArrowAndGenerate(t *testing.T) {
 	var m tea.Model = tui.InitialModel()
 
-	// Type word
 	m = typeWord(m, "HI")
 
-	// Tab to alignment field (0 → 1 → 2 → 3 → 4)
+	// Tab to tagline field (0 → 1 → 2 → 3)
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
-	m = typeWord(m, "center")
+	m = typeWord(m, "subtitle")
 
+	// Tab to alignment toggle (→ 4), press right to select "right"
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+
+	// Enter — should generate and transition to preview
 	m = sendKey(m, "enter")
 
 	view := m.View()
-	// Should stay on input screen — no banner art
-	if strings.Contains(view, "█") {
-		t.Error("expected to stay on input screen with invalid alignment, but transitioned to preview")
+	if !strings.Contains(view, "█") {
+		t.Errorf("expected banner art in preview after right-alignment selection, got: %s", view)
 	}
+	if !strings.Contains(view, "subtitle") {
+		t.Errorf("expected tagline in preview, got: %s", view)
+	}
+}
+
+func TestAlignToggle_SpaceToggles(t *testing.T) {
+	var m tea.Model = tui.InitialModel()
+
+	// Tab to alignment field (4 tabs from word field)
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+
+	// Space should toggle; view should not panic
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	view1 := m.View()
+
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	view2 := m.View()
+
+	_ = view1
+	_ = view2 // just confirm no panic
 }
 
 func TestInvalidColor_ShowsError(t *testing.T) {

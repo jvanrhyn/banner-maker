@@ -177,5 +177,5 @@ func AppendTagline(raw string, t Tagline) string {
 		}
 	}
 
-	return strings.TrimRight(raw, "\n") + "\n\n" + tagline + "\n"
+	return strings.TrimRight(raw, "\n ") + "\n" + tagline + "\n"
 }

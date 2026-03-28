@@ -250,11 +250,11 @@ func TestAppendTagline_RightAlign(t *testing.T) {
 	}
 }
 
-func TestAppendTagline_BlankLineSeparator(t *testing.T) {
+func TestAppendTagline_TaglineAppearsAfterBanner(t *testing.T) {
 	raw, _ := banner.Generate("A")
 	result := banner.AppendTagline(raw, banner.Tagline{Text: "subtitle"})
 	lines := strings.Split(result, "\n")
-	// Find the last non-empty line index
+	// Find the last non-empty line
 	lastNonEmpty := -1
 	for i, l := range lines {
 		if strings.TrimSpace(l) != "" {
@@ -267,9 +267,9 @@ func TestAppendTagline_BlankLineSeparator(t *testing.T) {
 	if lines[lastNonEmpty] != "subtitle" {
 		t.Errorf("expected tagline as last non-empty line, got: %q", lines[lastNonEmpty])
 	}
-	// The line immediately before the tagline must be blank (the separator)
-	if lastNonEmpty == 0 || strings.TrimSpace(lines[lastNonEmpty-1]) != "" {
-		t.Errorf("expected blank line before tagline, got: %q", lines[lastNonEmpty-1])
+	// The tagline should immediately follow the banner with no blank line separator
+	if lastNonEmpty > 0 && strings.TrimSpace(lines[lastNonEmpty-1]) == "" {
+		t.Errorf("expected no blank line before tagline, but found one")
 	}
 }
 

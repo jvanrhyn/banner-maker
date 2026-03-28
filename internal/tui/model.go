@@ -26,8 +26,9 @@ const (
 	fieldTextColor   = 1
 	fieldShadowColor = 2
 	fieldTagline     = 3
-	fieldAlign       = 4
-	fieldCount       = 5
+	fieldAlign       = 4  // not a textinput — rendered as a toggle
+	inputCount       = 4  // number of textinput fields (0..3)
+	tabStops         = 5  // total tab positions (0..4)
 )
 
 const saveFile = "banner.txt"
@@ -60,6 +61,16 @@ var (
 			Foreground(lipgloss.Color("82")).
 			Bold(true)
 
+	toggleOnStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFFDF5")).
+			Background(lipgloss.Color("#7D56F4")).
+			Padding(0, 1).
+			Bold(true)
+
+	toggleOffStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("240")).
+			Padding(0, 1)
+
 	docStyle = lipgloss.NewStyle().Padding(1, 2)
 )
 
@@ -75,8 +86,9 @@ type Model struct {
 	screen    screen
 	width     int
 	height    int
-	inputs    [fieldCount]textinput.Model
+	inputs    [inputCount]textinput.Model
 	focusIdx  int
+	align     string // "left" or "right"
 	banner    string // raw text (saved to file)
 	errMsg    string
 	savedPath string
@@ -107,15 +119,11 @@ func InitialModel() Model {
 	taglineInput.CharLimit = 80
 	taglineInput.Width = 60
 
-	alignInput := textinput.New()
-	alignInput.Placeholder = "left (default) · right"
-	alignInput.CharLimit = 10
-	alignInput.Width = 20
-
 	return Model{
 		screen:   screenInput,
-		inputs:   [fieldCount]textinput.Model{word, textColor, shadowColor, taglineInput, alignInput},
+		inputs:   [inputCount]textinput.Model{word, textColor, shadowColor, taglineInput},
 		focusIdx: fieldWord,
+		align:    "left",
 	}
 }
 
@@ -132,7 +140,7 @@ func (m Model) colorOpts() banner.ColorOptions {
 func (m Model) taglineOpts() banner.Tagline {
 	return banner.Tagline{
 		Text:  strings.TrimSpace(m.inputs[fieldTagline].Value()),
-		Align: strings.TrimSpace(m.inputs[fieldAlign].Value()),
+		Align: m.align,
 	}
 }
 
@@ -182,11 +190,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyTab, tea.KeyShiftTab:
-		// Cycle focus between the three inputs
 		if msg.Type == tea.KeyTab {
-			m.focusIdx = (m.focusIdx + 1) % fieldCount
+			m.focusIdx = (m.focusIdx + 1) % tabStops
 		} else {
-			m.focusIdx = (m.focusIdx - 1 + fieldCount) % fieldCount
+			m.focusIdx = (m.focusIdx - 1 + tabStops) % tabStops
 		}
 		for i := range m.inputs {
 			if i == m.focusIdx {
@@ -195,6 +202,7 @@ func (m Model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.inputs[i].Blur()
 			}
 		}
+		// When focusIdx == fieldAlign, all textinputs are blurred (correct)
 		return m, textinput.Blink
 
 	case tea.KeyEnter:
@@ -216,11 +224,6 @@ func (m Model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		}
-		alignVal := strings.TrimSpace(m.inputs[fieldAlign].Value())
-		if err := banner.ValidateTaglineAlign(alignVal); err != nil {
-			m.errMsg = err.Error()
-			return m, nil
-		}
 		art, err := banner.Generate(word)
 		if err != nil {
 			m.errMsg = err.Error()
@@ -232,7 +235,24 @@ func (m Model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Route keystrokes to the focused input
+	// Handle alignment toggle when that field is focused
+	if m.focusIdx == fieldAlign {
+		switch msg.Type {
+		case tea.KeyLeft:
+			m.align = "left"
+		case tea.KeyRight:
+			m.align = "right"
+		case tea.KeySpace:
+			if m.align == "left" {
+				m.align = "right"
+			} else {
+				m.align = "left"
+			}
+		}
+		return m, nil
+	}
+
+	// Route other keystrokes to the focused textinput
 	var cmd tea.Cmd
 	m.inputs[m.focusIdx], cmd = m.inputs[m.focusIdx].Update(msg)
 	m.errMsg = ""
@@ -285,6 +305,17 @@ func (m Model) View() string {
 	return ""
 }
 
+// renderAlignToggle renders the left/right toggle, highlighting the active choice.
+func (m Model) renderAlignToggle() string {
+	leftS, rightS := toggleOffStyle, toggleOffStyle
+	if m.align == "left" {
+		leftS = toggleOnStyle
+	} else {
+		rightS = toggleOnStyle
+	}
+	return leftS.Render("◀ left") + "  " + rightS.Render("right ▶")
+}
+
 func (m Model) viewInput() string {
 	var sb strings.Builder
 
@@ -298,13 +329,13 @@ func (m Model) viewInput() string {
 	sb.WriteString(labelStyle.Render("  Tagline  (optional)") + "\n")
 	sb.WriteString("  " + m.inputs[fieldTagline].View() + "\n\n")
 	sb.WriteString(labelStyle.Render("  Tagline alignment") + "\n")
-	sb.WriteString("  " + m.inputs[fieldAlign].View() + "\n\n")
+	sb.WriteString("  " + m.renderAlignToggle() + "\n\n")
 
 	if m.errMsg != "" {
 		sb.WriteString("  " + errorStyle.Render("⚠ "+m.errMsg) + "\n\n")
 	}
 
-	sb.WriteString(helpStyle.Render("  tab: next field • enter: generate • ctrl+c: quit"))
+	sb.WriteString(helpStyle.Render("  tab: next field  •  ← →: alignment  •  enter: generate  •  ctrl+c: quit"))
 	return docStyle.Render(sb.String())
 }
 
