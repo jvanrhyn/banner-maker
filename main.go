@@ -12,6 +12,9 @@ import (
 	"github.com/jvanrhyn/banner-maker/internal/tui"
 )
 
+// version is set at build time via -ldflags "-X main.version=<semver>".
+var version = "dev"
+
 func main() {
 	word := flag.String("word", "", "Text to render (enables non-interactive mode)")
 	color := flag.String("color", "", "Block/text color: hex (#RGB or #RRGGBB) or ANSI 0–255")
@@ -19,7 +22,13 @@ func main() {
 	tagline := flag.String("tagline", "", "Optional subtitle text")
 	align := flag.String("align", "left", "Tagline alignment: left or right")
 	output := flag.String("output", "", "Output path for the generated .go file (default: {word}banner.go)")
+	showVersion := flag.Bool("version", false, "Print version and exit")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println("banner-maker", version)
+		return
+	}
 
 	if os.Getenv("DEBUG") != "" {
 		f, err := tea.LogToFile("debug.log", "debug")

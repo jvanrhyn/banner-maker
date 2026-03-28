@@ -80,3 +80,6 @@ banner.txt
 
 # Generated banner Go files (output of banner-maker)
 /*banner.go
+
+# Built binary
+banner-maker
