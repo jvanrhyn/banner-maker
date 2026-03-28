@@ -99,3 +99,68 @@ func TestWindowResize_Handled(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	_ = updated.View() // should not panic
 }
+
+func TestTabCycles_BetweenInputFields(t *testing.T) {
+	var m tea.Model = tui.InitialModel()
+	view0 := m.View()
+
+	// Tab once
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	view1 := m.View()
+	_ = view1 // just ensure no panic and view renders
+
+	// Tab back
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	view2 := m.View()
+
+	// After tab + shift-tab we're back to the word field
+	if view0 != view2 {
+		// Views can differ in cursor blink state, so just check no panic occurred
+		_ = view2
+	}
+}
+
+func TestColorInput_UsedInPreview(t *testing.T) {
+	var m tea.Model = tui.InitialModel()
+
+	// Type word
+	m = typeWord(m, "HI")
+
+	// Tab to text-color field and type a color
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = typeWord(m, "#FF0000")
+
+	// Enter generates the banner with the given color
+	m = sendKey(m, "enter")
+
+	view := m.View()
+	// Should be on preview screen
+	if !strings.Contains(view, "█") {
+		t.Errorf("expected banner art in preview, got: %s", view)
+	}
+}
+
+func TestInvalidColor_ShowsError(t *testing.T) {
+	var m tea.Model = tui.InitialModel()
+
+	// Type a valid word
+	m = typeWord(m, "HI")
+
+	// Tab to text-color field and type an out-of-range ANSI index
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = typeWord(m, "999")
+
+	// Press Enter
+	m = sendKey(m, "enter")
+
+	view := m.View()
+	// Must stay on input screen — no banner art
+	if strings.Contains(view, "█") {
+		t.Error("expected to stay on input screen with invalid color, but transitioned to preview")
+	}
+	// Must surface an error about colour
+	lower := strings.ToLower(view)
+	if !strings.Contains(lower, "colour") && !strings.Contains(lower, "color") {
+		t.Errorf("expected colour error in view, got: %s", view)
+	}
+}

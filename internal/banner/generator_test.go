@@ -109,3 +109,107 @@ func TestSave_Overwrite(t *testing.T) {
 		t.Errorf("expected overwritten content, got %q", string(data))
 	}
 }
+
+func TestColorize_DefaultColors(t *testing.T) {
+	raw, _ := banner.Generate("A")
+	colorized := banner.Colorize(raw, banner.ColorOptions{})
+
+	// Output must still contain the original characters regardless of terminal color support
+	if !strings.Contains(colorized, "█") {
+		t.Error("colorized output missing block character █")
+	}
+	if !strings.Contains(colorized, "╗") {
+		t.Error("colorized output missing shadow character ╗")
+	}
+}
+
+func TestColorize_CustomTextColor(t *testing.T) {
+	raw, _ := banner.Generate("A")
+	opts := banner.ColorOptions{TextColor: "#FF0000", ShadowColor: "#0000FF"}
+	colorized := banner.Colorize(raw, opts)
+
+	// Content characters must be preserved regardless of color support
+	if !strings.Contains(colorized, "█") {
+		t.Error("colorized output missing block character █")
+	}
+}
+
+func TestColorize_EmptyOptsUsesDefaults(t *testing.T) {
+	raw, _ := banner.Generate("A")
+	withDefaults := banner.Colorize(raw, banner.DefaultColors())
+	withEmpty := banner.Colorize(raw, banner.ColorOptions{})
+
+	// Both should produce identical output since empty fields fall back to defaults
+	if withDefaults != withEmpty {
+		t.Error("empty ColorOptions should produce the same output as explicit DefaultColors()")
+	}
+}
+
+func TestColorize_PreservesNewlines(t *testing.T) {
+	raw, _ := banner.Generate("A")
+	colorized := banner.Colorize(raw, banner.ColorOptions{})
+
+	rawLines := strings.Count(raw, "\n")
+	colorizedLines := strings.Count(colorized, "\n")
+	if rawLines != colorizedLines {
+		t.Errorf("colorization changed newline count: got %d, want %d", colorizedLines, rawLines)
+	}
+}
+
+func TestValidateColor_EmptyString(t *testing.T) {
+	if err := banner.ValidateColor(""); err != nil {
+		t.Errorf("expected nil for empty string, got %v", err)
+	}
+}
+
+func TestValidateColor_ValidHex6(t *testing.T) {
+	cases := []string{"#FFFFFF", "#000000", "#7D56F4", "#abcdef", "#ABCDef"}
+	for _, c := range cases {
+		if err := banner.ValidateColor(c); err != nil {
+			t.Errorf("ValidateColor(%q) = %v, want nil", c, err)
+		}
+	}
+}
+
+func TestValidateColor_ValidHex3(t *testing.T) {
+	if err := banner.ValidateColor("#FFF"); err != nil {
+		t.Errorf("ValidateColor(\"#FFF\") = %v, want nil", err)
+	}
+}
+
+func TestValidateColor_ValidANSI256(t *testing.T) {
+	cases := []string{"0", "7", "128", "255"}
+	for _, c := range cases {
+		if err := banner.ValidateColor(c); err != nil {
+			t.Errorf("ValidateColor(%q) = %v, want nil", c, err)
+		}
+	}
+}
+
+func TestValidateColor_InvalidANSI_OutOfRange(t *testing.T) {
+	cases := []string{"256", "999", "-1", "1000"}
+	for _, c := range cases {
+		if err := banner.ValidateColor(c); err == nil {
+			t.Errorf("ValidateColor(%q): expected error, got nil", c)
+		}
+	}
+}
+
+func TestValidateColor_InvalidHex(t *testing.T) {
+	cases := []string{"#GGGGGG", "#1234", "#", "red", "blue", "hello"}
+	for _, c := range cases {
+		if err := banner.ValidateColor(c); err == nil {
+			t.Errorf("ValidateColor(%q): expected error, got nil", c)
+		}
+	}
+}
+
+func TestColorize_InvalidColorFallsBackToDefaults(t *testing.T) {
+	raw, _ := banner.Generate("A")
+	// An out-of-range ANSI value must not panic; output must still contain characters
+	colorized := banner.Colorize(raw, banner.ColorOptions{TextColor: "999", ShadowColor: "999"})
+	if !strings.Contains(colorized, "█") {
+		t.Error("colorized output missing block character █ after invalid color fallback")
+	}
+}
+
