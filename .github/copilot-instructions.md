@@ -1,9 +1,11 @@
 # Copilot Instructions for this repository
 
 - Branch safety:
-  - Always start and work in a feature branch (not `main` or `master`).
-  - Do not perform merges into `main` without explicit user confirmation.
+  - **ALWAYS** create and work in a feature branch. Never commit directly to `main` or `master` — not even for docs, README, LICENSE, or config changes.
+  - Do not perform merges into `main` without explicit user confirmation ("merge to main").
   - If `main` must be updated, ask for permission first and wait for approval.
+  - Branch naming: use descriptive names like `feature/`, `fix/`, `docs/`, `build/` prefixes.
+  - The only exception is if the user explicitly says "commit directly to main" — and even then, confirm before doing so.
 
 - Push policy:
   - Do not push any commits to remote by default.
