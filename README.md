@@ -206,7 +206,7 @@ Logs go to `debug.log`.
 
 ## License
 
-[Add your license here]
+MIT — see [LICENSE.md](LICENSE.md)
 
 ## Contributing
 
