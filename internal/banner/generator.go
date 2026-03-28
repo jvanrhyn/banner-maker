@@ -137,3 +137,45 @@ func Colorize(raw string, opts ColorOptions) string {
 func Save(content, path string) error {
 	return os.WriteFile(path, []byte(content), 0o644)
 }
+
+// Tagline represents an optional line of text appended below a banner.
+type Tagline struct {
+	Text  string // empty means no tagline
+	Align string // "left" (default) or "right"; case-insensitive
+}
+
+// ValidateTaglineAlign reports whether s is a valid alignment value.
+// Valid values are "" (defaults to "left"), "left", and "right".
+func ValidateTaglineAlign(s string) error {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "", "left", "right":
+		return nil
+	default:
+		return fmt.Errorf("invalid alignment %q: must be \"left\" or \"right\"", s)
+	}
+}
+
+// AppendTagline appends a blank separator line and the tagline text to raw.
+// If t.Text is empty, raw is returned unchanged.
+// Right alignment is calculated relative to the widest line in the raw banner.
+func AppendTagline(raw string, t Tagline) string {
+	if strings.TrimSpace(t.Text) == "" {
+		return raw
+	}
+
+	maxWidth := 0
+	for _, line := range strings.Split(raw, "\n") {
+		if w := len([]rune(line)); w > maxWidth {
+			maxWidth = w
+		}
+	}
+
+	tagline := t.Text
+	if strings.EqualFold(strings.TrimSpace(t.Align), "right") {
+		if pad := maxWidth - len([]rune(tagline)); pad > 0 {
+			tagline = strings.Repeat(" ", pad) + tagline
+		}
+	}
+
+	return strings.TrimRight(raw, "\n") + "\n\n" + tagline + "\n"
+}

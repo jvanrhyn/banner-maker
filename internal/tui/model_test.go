@@ -140,6 +140,51 @@ func TestColorInput_UsedInPreview(t *testing.T) {
 	}
 }
 
+func TestTagline_AppearsInPreview(t *testing.T) {
+	var m tea.Model = tui.InitialModel()
+
+	// Type word
+	m = typeWord(m, "HI")
+
+	// Tab past color fields to tagline field (0 → 1 → 2 → 3)
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = typeWord(m, "My tagline")
+
+	m = sendKey(m, "enter")
+
+	view := m.View()
+	if !strings.Contains(view, "My tagline") {
+		t.Errorf("expected tagline in preview, got: %s", view)
+	}
+	if !strings.Contains(view, "█") {
+		t.Errorf("expected banner art in preview, got: %s", view)
+	}
+}
+
+func TestTagline_InvalidAlignment_ShowsError(t *testing.T) {
+	var m tea.Model = tui.InitialModel()
+
+	// Type word
+	m = typeWord(m, "HI")
+
+	// Tab to alignment field (0 → 1 → 2 → 3 → 4)
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = typeWord(m, "center")
+
+	m = sendKey(m, "enter")
+
+	view := m.View()
+	// Should stay on input screen — no banner art
+	if strings.Contains(view, "█") {
+		t.Error("expected to stay on input screen with invalid alignment, but transitioned to preview")
+	}
+}
+
 func TestInvalidColor_ShowsError(t *testing.T) {
 	var m tea.Model = tui.InitialModel()
 

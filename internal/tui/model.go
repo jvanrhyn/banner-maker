@@ -25,7 +25,9 @@ const (
 	fieldWord        = 0
 	fieldTextColor   = 1
 	fieldShadowColor = 2
-	fieldCount       = 3
+	fieldTagline     = 3
+	fieldAlign       = 4
+	fieldCount       = 5
 )
 
 const saveFile = "banner.txt"
@@ -100,9 +102,19 @@ func InitialModel() Model {
 	shadowColor.CharLimit = 20
 	shadowColor.Width = 30
 
+	taglineInput := textinput.New()
+	taglineInput.Placeholder = "Optional tagline text…"
+	taglineInput.CharLimit = 80
+	taglineInput.Width = 60
+
+	alignInput := textinput.New()
+	alignInput.Placeholder = "left (default) · right"
+	alignInput.CharLimit = 10
+	alignInput.Width = 20
+
 	return Model{
 		screen:   screenInput,
-		inputs:   [fieldCount]textinput.Model{word, textColor, shadowColor},
+		inputs:   [fieldCount]textinput.Model{word, textColor, shadowColor, taglineInput, alignInput},
 		focusIdx: fieldWord,
 	}
 }
@@ -113,6 +125,14 @@ func (m Model) colorOpts() banner.ColorOptions {
 	return banner.ColorOptions{
 		TextColor:   strings.TrimSpace(m.inputs[fieldTextColor].Value()),
 		ShadowColor: strings.TrimSpace(m.inputs[fieldShadowColor].Value()),
+	}
+}
+
+// taglineOpts builds a Tagline from the current input values.
+func (m Model) taglineOpts() banner.Tagline {
+	return banner.Tagline{
+		Text:  strings.TrimSpace(m.inputs[fieldTagline].Value()),
+		Align: strings.TrimSpace(m.inputs[fieldAlign].Value()),
 	}
 }
 
@@ -196,6 +216,11 @@ func (m Model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		}
+		alignVal := strings.TrimSpace(m.inputs[fieldAlign].Value())
+		if err := banner.ValidateTaglineAlign(alignVal); err != nil {
+			m.errMsg = err.Error()
+			return m, nil
+		}
 		art, err := banner.Generate(word)
 		if err != nil {
 			m.errMsg = err.Error()
@@ -217,7 +242,8 @@ func (m Model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) updatePreview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "y", "enter":
-		return m, doSave(m.banner)
+		full := banner.AppendTagline(m.banner, m.taglineOpts())
+		return m, doSave(full)
 	case "n", "esc":
 		m.screen = screenInput
 		m.inputs[fieldWord].SetValue("")
@@ -269,6 +295,10 @@ func (m Model) viewInput() string {
 	sb.WriteString("  " + m.inputs[fieldTextColor].View() + "\n\n")
 	sb.WriteString(labelStyle.Render("  Shadow colour  (hex or 256-colour code)") + "\n")
 	sb.WriteString("  " + m.inputs[fieldShadowColor].View() + "\n\n")
+	sb.WriteString(labelStyle.Render("  Tagline  (optional)") + "\n")
+	sb.WriteString("  " + m.inputs[fieldTagline].View() + "\n\n")
+	sb.WriteString(labelStyle.Render("  Tagline alignment") + "\n")
+	sb.WriteString("  " + m.inputs[fieldAlign].View() + "\n\n")
 
 	if m.errMsg != "" {
 		sb.WriteString("  " + errorStyle.Render("⚠ "+m.errMsg) + "\n\n")
@@ -283,8 +313,8 @@ func (m Model) viewPreview() string {
 
 	sb.WriteString(titleStyle.Render("Banner Preview") + "\n\n")
 
-	// Display with colors; save file will contain the raw version
-	colorized := banner.Colorize(m.banner, m.colorOpts())
+	// Display with colors and tagline; saved file contains the same content
+	colorized := banner.Colorize(banner.AppendTagline(m.banner, m.taglineOpts()), m.colorOpts())
 	bannerContent := strings.TrimRight(colorized, "\n ")
 	boxWidth := m.width - 8
 	if boxWidth < 40 {
@@ -307,8 +337,8 @@ func (m Model) viewDone() string {
 
 	sb.WriteString(titleStyle.Render("Banner Maker") + "\n\n")
 	sb.WriteString(successStyle.Render(fmt.Sprintf("  ✓ Saved to %s", m.savedPath)) + "\n\n")
-	// Show colorized version on the done screen too
-	sb.WriteString(banner.Colorize(m.banner, m.colorOpts()) + "\n")
+	// Show colorized banner with tagline on the done screen too
+	sb.WriteString(banner.Colorize(banner.AppendTagline(m.banner, m.taglineOpts()), m.colorOpts()) + "\n")
 	sb.WriteString(helpStyle.Render("  Press any key to exit"))
 	return docStyle.Render(sb.String())
 }

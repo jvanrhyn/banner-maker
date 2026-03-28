@@ -213,3 +213,81 @@ func TestColorize_InvalidColorFallsBackToDefaults(t *testing.T) {
 	}
 }
 
+func TestAppendTagline_Empty_NoChange(t *testing.T) {
+	raw, _ := banner.Generate("A")
+	result := banner.AppendTagline(raw, banner.Tagline{})
+	if result != raw {
+		t.Error("AppendTagline with empty tagline should return raw unchanged")
+	}
+}
+
+func TestAppendTagline_LeftAlign(t *testing.T) {
+	raw, _ := banner.Generate("A")
+	result := banner.AppendTagline(raw, banner.Tagline{Text: "My CLI", Align: "left"})
+	if !strings.Contains(result, "My CLI") {
+		t.Error("expected tagline text in output")
+	}
+	lines := strings.Split(strings.TrimRight(result, "\n"), "\n")
+	last := lines[len(lines)-1]
+	if strings.HasPrefix(last, " ") {
+		t.Errorf("left-aligned tagline should not start with spaces, got: %q", last)
+	}
+}
+
+func TestAppendTagline_RightAlign(t *testing.T) {
+	raw, _ := banner.Generate("A")
+	result := banner.AppendTagline(raw, banner.Tagline{Text: "My CLI", Align: "right"})
+	if !strings.Contains(result, "My CLI") {
+		t.Error("expected tagline text in output")
+	}
+	lines := strings.Split(strings.TrimRight(result, "\n"), "\n")
+	last := lines[len(lines)-1]
+	if !strings.HasSuffix(last, "My CLI") {
+		t.Errorf("right-aligned tagline should end with the tagline text, got: %q", last)
+	}
+	if !strings.HasPrefix(last, " ") {
+		t.Errorf("right-aligned tagline should be padded with leading spaces, got: %q", last)
+	}
+}
+
+func TestAppendTagline_BlankLineSeparator(t *testing.T) {
+	raw, _ := banner.Generate("A")
+	result := banner.AppendTagline(raw, banner.Tagline{Text: "subtitle"})
+	lines := strings.Split(result, "\n")
+	// Find the last non-empty line index
+	lastNonEmpty := -1
+	for i, l := range lines {
+		if strings.TrimSpace(l) != "" {
+			lastNonEmpty = i
+		}
+	}
+	if lastNonEmpty < 0 {
+		t.Fatal("expected non-empty content in result")
+	}
+	if lines[lastNonEmpty] != "subtitle" {
+		t.Errorf("expected tagline as last non-empty line, got: %q", lines[lastNonEmpty])
+	}
+	// The line immediately before the tagline must be blank (the separator)
+	if lastNonEmpty == 0 || strings.TrimSpace(lines[lastNonEmpty-1]) != "" {
+		t.Errorf("expected blank line before tagline, got: %q", lines[lastNonEmpty-1])
+	}
+}
+
+func TestValidateTaglineAlign_Valid(t *testing.T) {
+	cases := []string{"", "left", "right", "LEFT", "RIGHT", "Left", "Right"}
+	for _, c := range cases {
+		if err := banner.ValidateTaglineAlign(c); err != nil {
+			t.Errorf("ValidateTaglineAlign(%q) = %v, want nil", c, err)
+		}
+	}
+}
+
+func TestValidateTaglineAlign_Invalid(t *testing.T) {
+	cases := []string{"center", "middle", "justified", "l", "r"}
+	for _, c := range cases {
+		if err := banner.ValidateTaglineAlign(c); err == nil {
+			t.Errorf("ValidateTaglineAlign(%q): expected error, got nil", c)
+		}
+	}
+}
+
