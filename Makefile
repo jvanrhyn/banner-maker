@@ -6,13 +6,26 @@ _GOBIN      := $(shell go env GOBIN)
 INSTALL_DIR := $(if $(_GOBIN),$(_GOBIN),$(shell go env GOPATH)/bin)
 
 # ─── Version (SemVer 2.0) ─────────────────────────────────────────────────────
-# Base: MAJOR.MINOR.PATCH read from VERSION file
-# Build metadata: +{commit_count}.{short_sha}[.dirty]
-BASE_VERSION := $(shell cat VERSION | tr -d '[:space:]')
-COMMIT_COUNT := $(shell git rev-list --count HEAD 2>/dev/null || echo "0")
-SHORT_SHA    := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-DIRTY        := $(shell git diff --quiet 2>/dev/null && git diff --cached --quiet 2>/dev/null || echo ".dirty")
-VERSION      := $(BASE_VERSION)+$(COMMIT_COUNT).$(SHORT_SHA)$(DIRTY)
+# Base: highest semver tag reachable from HEAD (e.g. v0.1.0 → 0.1.0).
+# On exact tag + clean working tree: plain "0.1.0"
+# Otherwise: "0.1.0+{commits_since_tag}.{short_sha}[.dirty]"
+# Fallback when no semver tag exists yet: "0.0.0+{commit_count}.{short_sha}[.dirty]"
+VERSION := $(shell \
+  TAG=$$(git tag --sort=-v:refname --merged HEAD --list 'v[0-9]*.[0-9]*.[0-9]*' 2>/dev/null | head -1); \
+  if [ -z "$$TAG" ]; then \
+    BASE="0.0.0"; \
+    SINCE=$$(git rev-list --count HEAD 2>/dev/null || echo "0"); \
+  else \
+    BASE=$$(echo $$TAG | sed 's/^v//'); \
+    SINCE=$$(git rev-list $$TAG..HEAD --count 2>/dev/null || echo "0"); \
+  fi; \
+  SHA=$$(git rev-parse --short HEAD 2>/dev/null || echo "unknown"); \
+  git diff --quiet 2>/dev/null && git diff --cached --quiet 2>/dev/null && DIRTY="" || DIRTY=".dirty"; \
+  if [ "$$SINCE" = "0" ] && [ -z "$$DIRTY" ]; then \
+    echo "$$BASE"; \
+  else \
+    echo "$$BASE+$$SINCE.$$SHA$$DIRTY"; \
+  fi)
 LDFLAGS      := -ldflags "-X main.version=$(VERSION)"
 
 # ─── Targets ──────────────────────────────────────────────────────────────────
