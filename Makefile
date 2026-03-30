@@ -7,9 +7,9 @@ INSTALL_DIR := $(if $(_GOBIN),$(_GOBIN),$(shell go env GOPATH)/bin)
 
 # ─── Version (SemVer 2.0) ─────────────────────────────────────────────────────
 # Base: highest semver tag reachable from HEAD (e.g. v0.1.0 → 0.1.0).
-# On exact tag + clean working tree: plain "0.1.0"
-# Otherwise: "0.1.0+{commits_since_tag}.{short_sha}[.dirty]"
-# Fallback when no semver tag exists yet: "0.0.0+{commit_count}.{short_sha}[.dirty]"
+# Always includes commit: "0.1.0+{short_sha}" on exact tag
+# Ahead of tag:           "0.1.0+{commits_since_tag}.{short_sha}[.dirty]"
+# Fallback (no tag):      "0.0.0+{commit_count}.{short_sha}[.dirty]"
 VERSION := $(shell \
   TAG=$$(git tag --sort=-v:refname --merged HEAD --list 'v[0-9]*.[0-9]*.[0-9]*' 2>/dev/null | head -1); \
   if [ -z "$$TAG" ]; then \
@@ -22,7 +22,7 @@ VERSION := $(shell \
   SHA=$$(git rev-parse --short HEAD 2>/dev/null || echo "unknown"); \
   git diff --quiet 2>/dev/null && git diff --cached --quiet 2>/dev/null && DIRTY="" || DIRTY=".dirty"; \
   if [ "$$SINCE" = "0" ] && [ -z "$$DIRTY" ]; then \
-    echo "$$BASE"; \
+    echo "$$BASE+$$SHA"; \
   else \
     echo "$$BASE+$$SINCE.$$SHA$$DIRTY"; \
   fi)
