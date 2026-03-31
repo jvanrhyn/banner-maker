@@ -23,6 +23,7 @@ func main() {
 	align := flag.String("align", "left", "Tagline alignment: left or right")
 	output := flag.String("output", "", "Output path for the generated .go file (default: {word}banner.go)")
 	showVersion := flag.Bool("version", false, "Print version and exit")
+	flag.BoolVar(showVersion, "v", false, "Print version and exit")
 	flag.Parse()
 
 	if *showVersion {

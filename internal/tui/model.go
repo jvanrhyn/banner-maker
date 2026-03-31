@@ -20,16 +20,30 @@ const (
 	screenDone
 )
 
-// inputField indices
+// inputField indices (tab-stop positions)
+// fieldAlign (4) is a toggle widget, not a textinput. fieldOutput (5) maps to inputs[4].
 const (
 	fieldWord        = 0
 	fieldTextColor   = 1
 	fieldShadowColor = 2
 	fieldTagline     = 3
-	fieldAlign       = 4  // not a textinput — rendered as a toggle
-	inputCount       = 4  // number of textinput fields (0..3)
-	tabStops         = 5  // total tab positions (0..4)
+	fieldAlign       = 4 // not a textinput — rendered as a toggle
+	fieldOutput      = 5
+	inputCount       = 5 // textinput slots: fieldWord..fieldTagline + fieldOutput (= inputs[4])
+	tabStops         = 6 // total tab positions (0..5)
 )
+
+// inputIdx maps a tab-stop focusIdx to the corresponding inputs array index.
+// Returns -1 if focusIdx does not correspond to a textinput (i.e. fieldAlign).
+func inputIdx(focusIdx int) int {
+	if focusIdx == fieldAlign {
+		return -1
+	}
+	if focusIdx == fieldOutput {
+		return 4 // inputs[4], skipping the fieldAlign tab-stop slot
+	}
+	return focusIdx
+}
 
 // ─── Styles ─────────────────────────────────────────────────────────────────
 
@@ -118,9 +132,14 @@ func InitialModel() Model {
 	taglineInput.CharLimit = 80
 	taglineInput.Width = 60
 
+	outputInput := textinput.New()
+	outputInput.Placeholder = "{word}banner.go  (default)"
+	outputInput.CharLimit = 120
+	outputInput.Width = 50
+
 	return Model{
 		screen:   screenInput,
-		inputs:   [inputCount]textinput.Model{word, textColor, shadowColor, taglineInput},
+		inputs:   [inputCount]textinput.Model{word, textColor, shadowColor, taglineInput, outputInput},
 		focusIdx: fieldWord,
 		align:    "left",
 	}
@@ -194,14 +213,15 @@ func (m Model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else {
 			m.focusIdx = (m.focusIdx - 1 + tabStops) % tabStops
 		}
+		active := inputIdx(m.focusIdx)
 		for i := range m.inputs {
-			if i == m.focusIdx {
+			if i == active {
 				m.inputs[i].Focus()
 			} else {
 				m.inputs[i].Blur()
 			}
 		}
-		// When focusIdx == fieldAlign, all textinputs are blurred (correct)
+		// When focusIdx == fieldAlign, active == -1 so all textinputs are blurred (correct)
 		return m, textinput.Blink
 
 	case tea.KeyEnter:
@@ -253,16 +273,19 @@ func (m Model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Route other keystrokes to the focused textinput
-	var cmd tea.Cmd
-	m.inputs[m.focusIdx], cmd = m.inputs[m.focusIdx].Update(msg)
-	m.errMsg = ""
-	return m, cmd
+	if idx := inputIdx(m.focusIdx); idx >= 0 {
+		var cmd tea.Cmd
+		m.inputs[idx], cmd = m.inputs[idx].Update(msg)
+		m.errMsg = ""
+		return m, cmd
+	}
+	return m, nil
 }
 
 func (m Model) updatePreview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "y", "enter":
-		return m, doSave(m.word, m.banner, m.taglineOpts())
+		return m, doSave(m.word, m.banner, m.taglineOpts(), strings.TrimSpace(m.inputs[inputIdx(fieldOutput)].Value()))
 	case "n", "esc":
 		m.screen = screenInput
 		m.inputs[fieldWord].SetValue("")
@@ -281,12 +304,16 @@ func (m Model) updatePreview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // doSave is an async Cmd that generates a Go source file and writes it to disk.
-func doSave(word, rawBanner string, tag banner.Tagline) tea.Cmd {
+// outputPath overrides the default {word}banner.go filename if non-empty.
+func doSave(word, rawBanner string, tag banner.Tagline, outputPath string) tea.Cmd {
 	return func() tea.Msg {
-		varName, _ := banner.GoIdent(word)
-		// Strip the "Logo" suffix to get the slug for the filename
-		slug := strings.TrimSuffix(varName, "Logo")
-		path := slug + "banner.go"
+		path := outputPath
+		if path == "" {
+			varName, _ := banner.GoIdent(word)
+			// Strip the "Logo" suffix to get the slug for the filename
+			slug := strings.TrimSuffix(varName, "Logo")
+			path = slug + "banner.go"
+		}
 		if err := banner.SaveGoFile(word, rawBanner, tag, path); err != nil {
 			return saveErrMsg{err}
 		}
@@ -333,6 +360,8 @@ func (m Model) viewInput() string {
 	sb.WriteString("  " + m.inputs[fieldTagline].View() + "\n\n")
 	sb.WriteString(labelStyle.Render("  Tagline alignment") + "\n")
 	sb.WriteString("  " + m.renderAlignToggle() + "\n\n")
+	sb.WriteString(labelStyle.Render("  Output path  (optional)") + "\n")
+	sb.WriteString("  " + m.inputs[inputIdx(fieldOutput)].View() + "\n\n")
 
 	if m.errMsg != "" {
 		sb.WriteString("  " + errorStyle.Render("⚠ "+m.errMsg) + "\n\n")
@@ -362,7 +391,7 @@ func (m Model) viewPreview() string {
 		sb.WriteString(errorStyle.Render("⚠ "+m.errMsg) + "\n\n")
 	}
 
-	sb.WriteString(helpStyle.Render("  y / enter: save to banner.txt  •  n / esc: try again  •  ctrl+c: quit"))
+	sb.WriteString(helpStyle.Render("  y / enter: save to {word}banner.go  •  n / esc: try again  •  ctrl+c: quit"))
 	return docStyle.Render(sb.String())
 }
 

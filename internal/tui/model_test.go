@@ -221,6 +221,38 @@ func TestAlignToggle_SpaceToggles(t *testing.T) {
 	_ = view2 // just confirm no panic
 }
 
+func TestCustomOutputPath_UsedWhenProvided(t *testing.T) {
+	dir := t.TempDir()
+	customPath := dir + "/custom_output.go"
+
+	var m tea.Model = tui.InitialModel()
+	m = typeWord(m, "HI")
+
+	// Tab to output field (0 word → 1 text-color → 2 shadow-color → 3 tagline → 4 align → 5 output)
+	for range 5 {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	}
+	m = typeWord(m, customPath)
+
+	// Enter to generate and go to preview
+	m = sendKey(m, "enter")
+
+	// Confirm save with 'y', execute the async save command
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	if cmd != nil {
+		msg := cmd()
+		updated, _ = updated.Update(msg)
+	}
+
+	view := updated.View()
+	if !strings.Contains(view, "custom_output.go") {
+		t.Errorf("expected custom output path in done view, got: %s", view)
+	}
+	if _, err := os.Stat(customPath); err != nil {
+		t.Errorf("expected file at custom path %s, got error: %v", customPath, err)
+	}
+}
+
 func TestInvalidColor_ShowsError(t *testing.T) {
 	var m tea.Model = tui.InitialModel()
 

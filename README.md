@@ -35,10 +35,18 @@ Launch the TUI without arguments:
 banner-maker
 ```
 
+**TUI Fields:**
+- Word (required)
+- Text color (optional)
+- Shadow color (optional)
+- Tagline (optional)
+- Tagline alignment toggle (left / right)
+- Output path (optional — defaults to `{word}banner.go`)
+
 **TUI Controls:**
-- **Tab** / **Shift+Tab** — Cycle between fields (word, text color, shadow color, tagline, alignment)
-- **↑ / ↓ / Space** — Toggle tagline alignment (left/right)
-- **Enter** — Submit word and preview the banner
+- **Tab** / **Shift+Tab** — Cycle between fields
+- **← / → / Space** — Toggle tagline alignment (left/right)
+- **Enter** — Submit and preview the banner
 - **y** — Confirm and save
 - **n** — Reject and edit
 - **Ctrl+C** — Quit
@@ -58,6 +66,7 @@ banner-maker --word "MYCLI" --color 205 --shadow 60 --tagline "The best CLI" --a
 - `--tagline` — Optional subtitle text below the banner
 - `--align` — Tagline alignment: `left` or `right` (default: `left`)
 - `--output` — Output path for the generated `.go` file (default: `{word}banner.go`)
+- `--version` / `-v` — Print version and exit
 
 **Example:**
 
@@ -135,7 +144,7 @@ main.go               — CLI entry point (interactive/non-interactive modes)
 **`banner.SaveGoFile(word, rawBanner string, tag Tagline, path string)`** — Writes the `.go` file to disk
 
 **TUI Model** — Full Bubble Tea application with multi-screen flow:
-- Input screen (word, colors, tagline, alignment)
+- Input screen (word, colors, tagline, alignment, output path)
 - Preview screen (live rendering with formatting)
 - Done screen (save confirmation)
 
@@ -166,12 +175,13 @@ Run with coverage:
 go test -cover ./...
 ```
 
-47 unit tests cover:
+48 unit tests cover:
 - Banner generation and figlet parsing
 - Color validation and ANSI code generation
 - Go identifier sanitization and code formatting
 - TUI state transitions and input handling
 - Tagline rendering with alignment
+- Custom output path override via TUI
 
 ## Requirements
 

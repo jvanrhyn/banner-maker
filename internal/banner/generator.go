@@ -231,7 +231,7 @@ func ValidateTaglineAlign(s string) error {
 	}
 }
 
-// AppendTagline appends a blank separator line and the tagline text to raw.
+// AppendTagline appends the tagline text directly after the banner content.
 // If t.Text is empty, raw is returned unchanged.
 // Right alignment is calculated relative to the widest line in the raw banner.
 func AppendTagline(raw string, t Tagline) string {
