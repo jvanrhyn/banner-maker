@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -20,16 +21,50 @@ const (
 	screenDone
 )
 
-// inputField indices
+// Tab stops, in focus order. fieldAlign and fieldEmbed are toggle widgets and
+// have no textinput behind them.
 const (
-	fieldWord        = 0
-	fieldTextColor   = 1
-	fieldShadowColor = 2
-	fieldTagline     = 3
-	fieldAlign       = 4  // not a textinput — rendered as a toggle
-	inputCount       = 4  // number of textinput fields (0..3)
-	tabStops         = 5  // total tab positions (0..4)
+	fieldWord = iota
+	fieldTextColor
+	fieldShadowColor
+	fieldTagline
+	fieldTaglineColor
+	fieldAlign // toggle
+	fieldPackage
+	fieldEmbed // toggle
+	fieldOutput
+	tabStops // total number of tab stops
 )
+
+// Slots in Model.inputs. These differ from tab stops because toggles don't
+// occupy a slot; use inputIdx to convert.
+const (
+	slotWord = iota
+	slotTextColor
+	slotShadowColor
+	slotTagline
+	slotTaglineColor
+	slotPackage
+	slotOutput
+	inputCount
+)
+
+// tabInput maps each tab stop to its inputs slot, or -1 for toggles.
+var tabInput = [tabStops]int{
+	fieldWord:         slotWord,
+	fieldTextColor:    slotTextColor,
+	fieldShadowColor:  slotShadowColor,
+	fieldTagline:      slotTagline,
+	fieldTaglineColor: slotTaglineColor,
+	fieldAlign:        -1,
+	fieldPackage:      slotPackage,
+	fieldEmbed:        -1,
+	fieldOutput:       slotOutput,
+}
+
+// inputIdx maps a tab-stop focusIdx to the corresponding inputs array index.
+// Returns -1 if focusIdx is a toggle (fieldAlign, fieldEmbed).
+func inputIdx(focusIdx int) int { return tabInput[focusIdx] }
 
 // ─── Styles ─────────────────────────────────────────────────────────────────
 
@@ -69,6 +104,10 @@ var (
 			Foreground(lipgloss.Color("240")).
 			Padding(0, 1)
 
+	focusStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#7D56F4")).
+			Bold(true)
+
 	docStyle = lipgloss.NewStyle().Padding(1, 2)
 )
 
@@ -87,60 +126,95 @@ type Model struct {
 	inputs    [inputCount]textinput.Model
 	focusIdx  int
 	align     string // "left" or "right"
+	embed     bool   // also generate the {Word}BannerColor() func
 	word      string // the input word (used for filename + Go identifier)
 	banner    string // raw figlet output
 	errMsg    string
 	savedPath string
+	// confirmOverwrite is set after a save hit an existing file; the next
+	// save attempt then replaces it.
+	confirmOverwrite bool
 }
 
 // InitialModel returns a freshly initialised Model ready to run.
 func InitialModel() Model {
 	defaults := banner.DefaultColors()
 
-	word := textinput.New()
-	word.Placeholder = "Enter a word…"
-	word.Focus()
-	word.CharLimit = 50
-	word.Width = 40
+	newInput := func(placeholder string, charLimit, width int) textinput.Model {
+		ti := textinput.New()
+		ti.Placeholder = placeholder
+		ti.CharLimit = charLimit
+		ti.Width = width
+		return ti
+	}
 
-	textColor := textinput.New()
-	textColor.Placeholder = defaults.TextColor + "  (default)"
-	textColor.CharLimit = 20
-	textColor.Width = 30
-
-	shadowColor := textinput.New()
-	shadowColor.Placeholder = defaults.ShadowColor + "  (default)"
-	shadowColor.CharLimit = 20
-	shadowColor.Width = 30
-
-	taglineInput := textinput.New()
-	taglineInput.Placeholder = "Optional tagline text…"
-	taglineInput.CharLimit = 80
-	taglineInput.Width = 60
+	var inputs [inputCount]textinput.Model
+	inputs[slotWord] = newInput("Enter a word…", 50, 40)
+	inputs[slotWord].Focus()
+	inputs[slotTextColor] = newInput(defaults.TextColor+"  (default)", 20, 30)
+	inputs[slotShadowColor] = newInput(defaults.ShadowColor+"  (default)", 20, 30)
+	inputs[slotTagline] = newInput("Optional tagline text…", 80, 40)
+	inputs[slotTaglineColor] = newInput("none  (default)", 20, 30)
+	inputs[slotPackage] = newInput("main  (default)", 60, 30)
+	inputs[slotOutput] = newInput("{word}banner.go  (default)", 120, 40)
 
 	return Model{
 		screen:   screenInput,
-		inputs:   [inputCount]textinput.Model{word, textColor, shadowColor, taglineInput},
+		inputs:   inputs,
 		focusIdx: fieldWord,
 		align:    "left",
 	}
 }
 
+// value returns the trimmed contents of an input slot.
+func (m Model) value(slot int) string { return strings.TrimSpace(m.inputs[slot].Value()) }
+
 // colorOpts builds a ColorOptions from the current input values, falling back
 // to defaults for any empty fields.
 func (m Model) colorOpts() banner.ColorOptions {
 	return banner.ColorOptions{
-		TextColor:   strings.TrimSpace(m.inputs[fieldTextColor].Value()),
-		ShadowColor: strings.TrimSpace(m.inputs[fieldShadowColor].Value()),
+		TextColor:    m.value(slotTextColor),
+		ShadowColor:  m.value(slotShadowColor),
+		TaglineColor: m.value(slotTaglineColor),
 	}
 }
 
 // taglineOpts builds a Tagline from the current input values.
 func (m Model) taglineOpts() banner.Tagline {
-	return banner.Tagline{
-		Text:  strings.TrimSpace(m.inputs[fieldTagline].Value()),
-		Align: m.align,
+	return banner.Tagline{Text: m.value(slotTagline), Align: m.align}
+}
+
+// sourceOpts builds the generated-file options from the current form state.
+func (m Model) sourceOpts(overwrite bool) banner.SourceOptions {
+	return banner.SourceOptions{
+		Package:    m.value(slotPackage),
+		EmbedColor: m.embed,
+		Colors:     m.colorOpts(),
+		Overwrite:  overwrite,
 	}
+}
+
+// validate checks every form field and returns the first problem found.
+func (m Model) validate() error {
+	if m.value(slotWord) == "" {
+		return errors.New("Please enter at least one character.")
+	}
+	for _, c := range []struct {
+		label string
+		slot  int
+	}{
+		{"Text colour", slotTextColor},
+		{"Shadow colour", slotShadowColor},
+		{"Tagline colour", slotTaglineColor},
+	} {
+		if err := banner.ValidateColor(m.value(c.slot)); err != nil {
+			return fmt.Errorf("%s: %w", c.label, err)
+		}
+	}
+	if err := banner.ValidatePackage(m.value(slotPackage)); err != nil {
+		return fmt.Errorf("Package: %w", err)
+	}
+	return nil
 }
 
 // ─── Init ────────────────────────────────────────────────────────────────────
@@ -179,6 +253,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case saveErrMsg:
+		if errors.Is(msg.err, banner.ErrFileExists) {
+			m.confirmOverwrite = true
+			m.errMsg = fmt.Sprintf("%v — press y again to overwrite, n to cancel", msg.err)
+			return m, nil
+		}
 		m.errMsg = fmt.Sprintf("Save failed: %v", msg.err)
 		return m, nil
 	}
@@ -194,35 +273,23 @@ func (m Model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else {
 			m.focusIdx = (m.focusIdx - 1 + tabStops) % tabStops
 		}
+		active := inputIdx(m.focusIdx)
 		for i := range m.inputs {
-			if i == m.focusIdx {
+			if i == active {
 				m.inputs[i].Focus()
 			} else {
 				m.inputs[i].Blur()
 			}
 		}
-		// When focusIdx == fieldAlign, all textinputs are blurred (correct)
+		// When focusIdx == fieldAlign, active == -1 so all textinputs are blurred (correct)
 		return m, textinput.Blink
 
 	case tea.KeyEnter:
-		word := strings.TrimSpace(m.inputs[fieldWord].Value())
-		if word == "" {
-			m.errMsg = "Please enter at least one character."
+		if err := m.validate(); err != nil {
+			m.errMsg = err.Error()
 			return m, nil
 		}
-		opts := m.colorOpts()
-		if opts.TextColor != "" {
-			if err := banner.ValidateColor(opts.TextColor); err != nil {
-				m.errMsg = "Text colour: " + err.Error()
-				return m, nil
-			}
-		}
-		if opts.ShadowColor != "" {
-			if err := banner.ValidateColor(opts.ShadowColor); err != nil {
-				m.errMsg = "Shadow colour: " + err.Error()
-				return m, nil
-			}
-		}
+		word := m.value(slotWord)
 		art, err := banner.Generate(word)
 		if err != nil {
 			m.errMsg = err.Error()
@@ -235,8 +302,9 @@ func (m Model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Handle alignment toggle when that field is focused
-	if m.focusIdx == fieldAlign {
+	// Toggle widgets have no textinput; arrows pick a side, space flips it.
+	switch m.focusIdx {
+	case fieldAlign:
 		switch msg.Type {
 		case tea.KeyLeft:
 			m.align = "left"
@@ -250,24 +318,38 @@ func (m Model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	case fieldEmbed:
+		switch msg.Type {
+		case tea.KeyLeft:
+			m.embed = false
+		case tea.KeyRight:
+			m.embed = true
+		case tea.KeySpace:
+			m.embed = !m.embed
+		}
+		return m, nil
 	}
 
 	// Route other keystrokes to the focused textinput
-	var cmd tea.Cmd
-	m.inputs[m.focusIdx], cmd = m.inputs[m.focusIdx].Update(msg)
-	m.errMsg = ""
-	return m, cmd
+	if idx := inputIdx(m.focusIdx); idx >= 0 {
+		var cmd tea.Cmd
+		m.inputs[idx], cmd = m.inputs[idx].Update(msg)
+		m.errMsg = ""
+		return m, cmd
+	}
+	return m, nil
 }
 
 func (m Model) updatePreview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "y", "enter":
-		return m, doSave(m.word, m.banner, m.taglineOpts())
+		return m, doSave(m.word, m.banner, m.taglineOpts(), m.value(slotOutput), m.sourceOpts(m.confirmOverwrite))
 	case "n", "esc":
+		m.confirmOverwrite = false
 		m.screen = screenInput
-		m.inputs[fieldWord].SetValue("")
+		m.inputs[slotWord].SetValue("")
 		for i := range m.inputs {
-			if i == fieldWord {
+			if i == slotWord {
 				m.inputs[i].Focus()
 			} else {
 				m.inputs[i].Blur()
@@ -281,13 +363,15 @@ func (m Model) updatePreview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // doSave is an async Cmd that generates a Go source file and writes it to disk.
-func doSave(word, rawBanner string, tag banner.Tagline) tea.Cmd {
+// outputPath overrides the default {word}banner.go filename if non-empty.
+// An existing file is only replaced when opts.Overwrite is true.
+func doSave(word, rawBanner string, tag banner.Tagline, outputPath string, opts banner.SourceOptions) tea.Cmd {
 	return func() tea.Msg {
-		varName, _ := banner.GoIdent(word)
-		// Strip the "Logo" suffix to get the slug for the filename
-		slug := strings.TrimSuffix(varName, "Logo")
-		path := slug + "banner.go"
-		if err := banner.SaveGoFile(word, rawBanner, tag, path); err != nil {
+		path := outputPath
+		if path == "" {
+			path = banner.DefaultOutputPath(word)
+		}
+		if err := banner.SaveGoFileWithOptions(word, rawBanner, tag, path, opts); err != nil {
 			return saveErrMsg{err}
 		}
 		return savedMsg{path: path}
@@ -308,37 +392,47 @@ func (m Model) View() string {
 	return ""
 }
 
-// renderAlignToggle renders the left/right toggle, highlighting the active choice.
-func (m Model) renderAlignToggle() string {
+// renderToggle renders a two-choice toggle, highlighting the active side.
+func renderToggle(left, right string, leftActive bool) string {
 	leftS, rightS := toggleOffStyle, toggleOffStyle
-	if m.align == "left" {
+	if leftActive {
 		leftS = toggleOnStyle
 	} else {
 		rightS = toggleOnStyle
 	}
-	return leftS.Render("◀ left") + "  " + rightS.Render("right ▶")
+	return leftS.Render("◀ "+left) + "  " + rightS.Render(right+" ▶")
+}
+
+// row renders one form line: a focus marker, a padded label and the control.
+func (m Model) row(field int, label, control string) string {
+	marker := "  "
+	if m.focusIdx == field {
+		marker = focusStyle.Render("▸ ")
+	}
+	return marker + labelStyle.Render(fmt.Sprintf("%-18s", label)) + control + "\n"
 }
 
 func (m Model) viewInput() string {
 	var sb strings.Builder
 
 	sb.WriteString(titleStyle.Render("Banner Maker") + "\n\n")
-	sb.WriteString(labelStyle.Render("  Word") + "\n")
-	sb.WriteString("  " + m.inputs[fieldWord].View() + "\n\n")
-	sb.WriteString(labelStyle.Render("  Text colour  (hex or 256-colour code)") + "\n")
-	sb.WriteString("  " + m.inputs[fieldTextColor].View() + "\n\n")
-	sb.WriteString(labelStyle.Render("  Shadow colour  (hex or 256-colour code)") + "\n")
-	sb.WriteString("  " + m.inputs[fieldShadowColor].View() + "\n\n")
-	sb.WriteString(labelStyle.Render("  Tagline  (optional)") + "\n")
-	sb.WriteString("  " + m.inputs[fieldTagline].View() + "\n\n")
-	sb.WriteString(labelStyle.Render("  Tagline alignment") + "\n")
-	sb.WriteString("  " + m.renderAlignToggle() + "\n\n")
+	sb.WriteString(m.row(fieldWord, "Word", m.inputs[slotWord].View()))
+	sb.WriteString(m.row(fieldTextColor, "Text colour", m.inputs[slotTextColor].View()))
+	sb.WriteString(m.row(fieldShadowColor, "Shadow colour", m.inputs[slotShadowColor].View()))
+	sb.WriteString(m.row(fieldTagline, "Tagline", m.inputs[slotTagline].View()))
+	sb.WriteString(m.row(fieldTaglineColor, "Tagline colour", m.inputs[slotTaglineColor].View()))
+	sb.WriteString(m.row(fieldAlign, "Tagline align", renderToggle("left", "right", m.align == "left")))
+	sb.WriteString(m.row(fieldPackage, "Package", m.inputs[slotPackage].View()))
+	sb.WriteString(m.row(fieldEmbed, "Embed colour", renderToggle("off", "on", !m.embed)))
+	sb.WriteString(m.row(fieldOutput, "Output path", m.inputs[slotOutput].View()))
+	sb.WriteString("\n")
 
 	if m.errMsg != "" {
 		sb.WriteString("  " + errorStyle.Render("⚠ "+m.errMsg) + "\n\n")
 	}
 
-	sb.WriteString(helpStyle.Render("  tab: next field  •  ← →: alignment  •  enter: generate  •  ctrl+c: quit"))
+	sb.WriteString(helpStyle.Render("  colours: hex (#RGB, #RRGGBB) or 0–255  •  leave optional fields blank for defaults") + "\n")
+	sb.WriteString(helpStyle.Render("  tab/shift+tab: move  •  ← → space: toggles  •  enter: generate  •  ctrl+c: quit"))
 	return docStyle.Render(sb.String())
 }
 
@@ -348,7 +442,7 @@ func (m Model) viewPreview() string {
 	sb.WriteString(titleStyle.Render("Banner Preview") + "\n\n")
 
 	// Display with colors and tagline; saved file contains the same content
-	colorized := banner.Colorize(banner.AppendTagline(m.banner, m.taglineOpts()), m.colorOpts())
+	colorized := banner.ColorizeWithTagline(m.banner, m.taglineOpts(), m.colorOpts())
 	bannerContent := strings.TrimRight(colorized, "\n ")
 	boxWidth := m.width - 8
 	if boxWidth < 40 {
@@ -358,11 +452,16 @@ func (m Model) viewPreview() string {
 	box := bannerBoxStyle.Width(boxWidth).Render(bannerContent)
 	sb.WriteString(box + "\n\n")
 
+	if m.embed {
+		_, funcName := banner.GoIdent(m.word)
+		sb.WriteString(helpStyle.Render("  Also generating "+funcName+"Color() with ANSI colours embedded") + "\n\n")
+	}
+
 	if m.errMsg != "" {
 		sb.WriteString(errorStyle.Render("⚠ "+m.errMsg) + "\n\n")
 	}
 
-	sb.WriteString(helpStyle.Render("  y / enter: save to banner.txt  •  n / esc: try again  •  ctrl+c: quit"))
+	sb.WriteString(helpStyle.Render("  y / enter: save to {word}banner.go  •  n / esc: try again  •  ctrl+c: quit"))
 	return docStyle.Render(sb.String())
 }
 
@@ -372,8 +471,7 @@ func (m Model) viewDone() string {
 	sb.WriteString(titleStyle.Render("Banner Maker") + "\n\n")
 	sb.WriteString(successStyle.Render(fmt.Sprintf("  ✓ Saved to %s", m.savedPath)) + "\n\n")
 	// Show colorized banner with tagline on the done screen too
-	sb.WriteString(banner.Colorize(banner.AppendTagline(m.banner, m.taglineOpts()), m.colorOpts()) + "\n")
+	sb.WriteString(banner.ColorizeWithTagline(m.banner, m.taglineOpts(), m.colorOpts()) + "\n")
 	sb.WriteString(helpStyle.Render("  Press any key to exit"))
 	return docStyle.Render(sb.String())
 }
-

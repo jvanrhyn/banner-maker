@@ -35,11 +35,22 @@ Launch the TUI without arguments:
 banner-maker
 ```
 
+**TUI Fields:**
+- Word (required)
+- Text color (optional)
+- Shadow color (optional)
+- Tagline (optional)
+- Tagline color (optional)
+- Tagline alignment toggle (left / right)
+- Package (optional — defaults to `main`)
+- Embed colour toggle (off / on — adds a `{Word}BannerColor()` func to the generated file)
+- Output path (optional — defaults to `{word}banner.go`)
+
 **TUI Controls:**
-- **Tab** / **Shift+Tab** — Cycle between fields (word, text color, shadow color, tagline, alignment)
-- **↑ / ↓ / Space** — Toggle tagline alignment (left/right)
-- **Enter** — Submit word and preview the banner
-- **y** — Confirm and save
+- **Tab** / **Shift+Tab** — Cycle between fields
+- **← / → / Space** — Change the focused toggle (tagline alignment, embed colour)
+- **Enter** — Submit and preview the banner
+- **y** — Confirm and save. If the file already exists you are asked to press **y** again to overwrite it
 - **n** — Reject and edit
 - **Ctrl+C** — Quit
 
@@ -56,8 +67,14 @@ banner-maker --word "MYCLI" --color 205 --shadow 60 --tagline "The best CLI" --a
 - `--color` — Block/text color: hex (`#RGB` or `#RRGGBB`) or ANSI 0–255 (default: built-in color)
 - `--shadow` — Drop-shadow color: hex or ANSI 0–255 (default: built-in color)
 - `--tagline` — Optional subtitle text below the banner
+- `--tagline-color` — Tagline color: hex or ANSI 0–255 (default: unstyled)
 - `--align` — Tagline alignment: `left` or `right` (default: `left`)
 - `--output` — Output path for the generated `.go` file (default: `{word}banner.go`)
+- `--package` — Package name for the generated file (default: `main`)
+- `--embed-color` — Also generate a `{Word}BannerColor()` func with the chosen colors baked in as ANSI escapes (the plain `{Word}Banner()` is always generated). The escapes are unconditional; check `NO_COLOR`/TTY yourself before printing.
+- `--force` — Overwrite the output file if it exists (otherwise the command fails and leaves it untouched)
+- `--stdout` — Print the generated Go source to stdout instead of writing a file (cannot be combined with `--output`)
+- `--version` / `-v` — Print version and exit
 
 **Example:**
 
@@ -69,6 +86,8 @@ Output:
 - Displays the colored banner in the terminal
 - Saves to `hellobanner.go` in the current directory
 - The generated file contains a reusable Go function
+
+Only printable ASCII is supported; other characters (accents, emoji, newlines) are rejected with an error naming them.
 
 ### Generated Go Files
 
@@ -135,7 +154,7 @@ main.go               — CLI entry point (interactive/non-interactive modes)
 **`banner.SaveGoFile(word, rawBanner string, tag Tagline, path string)`** — Writes the `.go` file to disk
 
 **TUI Model** — Full Bubble Tea application with multi-screen flow:
-- Input screen (word, colors, tagline, alignment)
+- Input screen (word, colors, tagline, alignment, output path)
 - Preview screen (live rendering with formatting)
 - Done screen (save confirmation)
 
@@ -166,12 +185,13 @@ Run with coverage:
 go test -cover ./...
 ```
 
-47 unit tests cover:
+48 unit tests cover:
 - Banner generation and figlet parsing
 - Color validation and ANSI code generation
 - Go identifier sanitization and code formatting
 - TUI state transitions and input handling
 - Tagline rendering with alignment
+- Custom output path override via TUI
 
 ## Requirements
 
