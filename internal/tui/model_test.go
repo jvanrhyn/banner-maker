@@ -22,6 +22,39 @@ func sendKey(m tea.Model, key string) tea.Model {
 	return updated
 }
 
+func tab(m tea.Model, n int) tea.Model {
+	for range n {
+		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	}
+	return m
+}
+
+func shortTempDir(t *testing.T) string {
+	t.Helper()
+	// Short dir: the output field has a 120-char limit and t.TempDir() paths
+	// derived from long test names can exceed it.
+	dir, err := os.MkdirTemp("", "bm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	return dir
+}
+
+// saveVia presses 'y' on the preview screen and runs the resulting command.
+func saveVia(m tea.Model) tea.Model {
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	if cmd != nil {
+		updated, _ = updated.Update(cmd())
+	}
+	return updated
+}
+
+func typeRunes(m tea.Model, s string) tea.Model {
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)})
+	return m
+}
+
 func typeWord(m tea.Model, word string) tea.Model {
 	for _, ch := range word {
 		m = sendKey(m, string(ch))
@@ -185,8 +218,8 @@ func TestAlignToggle_RightArrowAndGenerate(t *testing.T) {
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	m = typeWord(m, "subtitle")
 
-	// Tab to alignment toggle (→ 4), press right to select "right"
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	// Tab past tagline-color to the alignment toggle (→ 5), press right to select "right"
+	m = tab(m, 2)
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
 
 	// Enter — should generate and transition to preview
@@ -204,11 +237,8 @@ func TestAlignToggle_RightArrowAndGenerate(t *testing.T) {
 func TestAlignToggle_SpaceToggles(t *testing.T) {
 	var m tea.Model = tui.InitialModel()
 
-	// Tab to alignment field (4 tabs from word field)
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	// Tab to alignment field (5 tabs from word field)
+	m = tab(m, 5)
 
 	// Space should toggle; view should not panic
 	m, _ = m.Update(tea.KeyMsg{Type: tea.KeySpace})
@@ -228,8 +258,8 @@ func TestCustomOutputPath_UsedWhenProvided(t *testing.T) {
 	var m tea.Model = tui.InitialModel()
 	m = typeWord(m, "HI")
 
-	// Tab to output field (0 word → 1 text-color → 2 shadow-color → 3 tagline → 4 align → 5 output)
-	for range 5 {
+	// Tab to output field (0 word → 1 text → 2 shadow → 3 tagline → 4 tagline-color → 5 align → 6 package → 7 embed → 8 output)
+	for range 8 {
 		m, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
 	}
 	m = typeWord(m, customPath)
@@ -275,5 +305,222 @@ func TestInvalidColor_ShowsError(t *testing.T) {
 	lower := strings.ToLower(view)
 	if !strings.Contains(lower, "colour") && !strings.Contains(lower, "color") {
 		t.Errorf("expected colour error in view, got: %s", view)
+	}
+}
+
+func TestPreviewSave_ExistingFileNeedsSecondConfirm(t *testing.T) {
+	// Short dir: the output field has a 120-char limit and t.TempDir() paths
+	// derived from this test's long name can exceed it.
+	dir, err := os.MkdirTemp("", "bm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	path := dir + "/existing.go"
+	if err := os.WriteFile(path, []byte("original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var m tea.Model = tui.InitialModel()
+	m = typeWord(m, "HI")
+	m = tab(m, 8)
+	m = typeWord(m, path)
+	m = sendKey(m, "enter")
+
+	press := func(m tea.Model) tea.Model {
+		updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+		if cmd != nil {
+			updated, _ = updated.Update(cmd())
+		}
+		return updated
+	}
+
+	// First 'y': refused, file untouched, user is told how to proceed.
+	m = press(m)
+	if view := m.View(); !strings.Contains(view, "already exists") || !strings.Contains(view, "overwrite") {
+		t.Errorf("expected overwrite prompt, got: %s", view)
+	}
+	if data, _ := os.ReadFile(path); string(data) != "original" {
+		t.Fatalf("file modified on first save: %q", data)
+	}
+
+	// Second 'y': overwrites and reaches the done screen.
+	m = press(m)
+	if data, _ := os.ReadFile(path); !strings.Contains(string(data), "package main") {
+		t.Errorf("file not overwritten on confirm: %q", data)
+	}
+	if !strings.Contains(m.View(), "Saved") {
+		t.Errorf("expected done screen, got: %s", m.View())
+	}
+}
+
+// ─── Parity with CLI flags ──────────────────────────────────────────────────
+
+func TestTabWrapsAroundAfterNineStops(t *testing.T) {
+	var m tea.Model = tui.InitialModel()
+	m = tab(m, 9)
+	m = typeWord(m, "X")
+	m = sendKey(m, "enter")
+	if !strings.Contains(m.View(), "█") {
+		t.Errorf("9 tabs should wrap back to the word field; got: %s", m.View())
+	}
+}
+
+func TestShiftTabFromWordGoesToOutput(t *testing.T) {
+	dir := shortTempDir(t)
+	path := dir + "/wrap.go"
+	var m tea.Model = tui.InitialModel()
+	m = typeWord(m, "HI")
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	m = typeRunes(m, path)
+	m = sendKey(m, "enter")
+	m = saveVia(m)
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("shift-tab from word should land on output: %v", err)
+	}
+}
+
+func TestInvalidTaglineColor_ShowsError(t *testing.T) {
+	var m tea.Model = tui.InitialModel()
+	m = typeWord(m, "HI")
+	m = tab(m, 4)
+	m = typeRunes(m, "999")
+	m = sendKey(m, "enter")
+	view := m.View()
+	if strings.Contains(view, "█") {
+		t.Error("expected to stay on input screen")
+	}
+	if !strings.Contains(strings.ToLower(view), "tagline colo") {
+		t.Errorf("expected tagline colour error, got: %s", view)
+	}
+}
+
+func TestInvalidPackage_ShowsError(t *testing.T) {
+	var m tea.Model = tui.InitialModel()
+	m = typeWord(m, "HI")
+	m = tab(m, 6)
+	m = typeRunes(m, "bad-name")
+	m = sendKey(m, "enter")
+	view := m.View()
+	if strings.Contains(view, "█") {
+		t.Error("expected to stay on input screen")
+	}
+	if !strings.Contains(strings.ToLower(view), "package") {
+		t.Errorf("expected package error, got: %s", view)
+	}
+}
+
+func TestUnsupportedCharacters_ShowsError(t *testing.T) {
+	var m tea.Model = tui.InitialModel()
+	m = typeRunes(m, "héllo")
+	m = sendKey(m, "enter")
+	view := m.View()
+	if strings.Contains(view, "█") {
+		t.Error("expected to stay on input screen")
+	}
+	if !strings.Contains(view, "é") {
+		t.Errorf("expected error naming the unsupported character, got: %s", view)
+	}
+}
+
+func TestPackage_AppliedToSavedFile(t *testing.T) {
+	path := shortTempDir(t) + "/pkg.go"
+	var m tea.Model = tui.InitialModel()
+	m = typeWord(m, "HI")
+	m = tab(m, 6)
+	m = typeRunes(m, "ui")
+	m = tab(m, 2)
+	m = typeRunes(m, path)
+	m = sendKey(m, "enter")
+	m = saveVia(m)
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "package ui\n") {
+		t.Errorf("package not applied:\n%s", data)
+	}
+	if strings.Contains(string(data), "BannerColor") {
+		t.Error("embed-color must be off by default")
+	}
+}
+
+func TestEmbedColor_ToggleAddsColorFunc(t *testing.T) {
+	path := shortTempDir(t) + "/emb.go"
+	var m tea.Model = tui.InitialModel()
+	m = typeWord(m, "HI")
+	m = tab(m, 1)
+	m = typeRunes(m, "#FF0000")
+	m = tab(m, 6) // → embed toggle (7)
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	m = tab(m, 1)
+	m = typeRunes(m, path)
+	m = sendKey(m, "enter")
+
+	if !strings.Contains(m.View(), "HiBannerColor") {
+		t.Errorf("preview should mention the colour func, got: %s", m.View())
+	}
+	m = saveVia(m)
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"func HiBannerColor()", `\x1b[38;2;255;0;0m`} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("saved file missing %q:\n%s", want, data)
+		}
+	}
+}
+
+func TestEmbedColor_ArrowKeysSetExplicitly(t *testing.T) {
+	path := shortTempDir(t) + "/arrow.go"
+	var m tea.Model = tui.InitialModel()
+	m = typeWord(m, "HI")
+	m = tab(m, 7)
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight}) // on
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyLeft})  // off again
+	m = tab(m, 1)
+	m = typeRunes(m, path)
+	m = sendKey(m, "enter")
+	m = saveVia(m)
+	data, _ := os.ReadFile(path)
+	if strings.Contains(string(data), "BannerColor") {
+		t.Errorf("left arrow should turn embed off:\n%s", data)
+	}
+}
+
+func TestTaglineColor_AcceptedAndPreviewShowsTagline(t *testing.T) {
+	var m tea.Model = tui.InitialModel()
+	m = typeWord(m, "HI")
+	m = tab(m, 3)
+	m = typeRunes(m, "sub")
+	m = tab(m, 1)
+	m = typeRunes(m, "#00FF00")
+	m = sendKey(m, "enter")
+	view := m.View()
+	if !strings.Contains(view, "sub") || !strings.Contains(view, "█") {
+		t.Errorf("expected preview with tagline, got: %s", view)
+	}
+}
+
+func TestTaglineColor_EmbeddedInSavedFile(t *testing.T) {
+	path := shortTempDir(t) + "/tag.go"
+	var m tea.Model = tui.InitialModel()
+	m = typeWord(m, "HI")
+	m = tab(m, 3)
+	m = typeRunes(m, "sub")
+	m = tab(m, 1)
+	m = typeRunes(m, "51")
+	m = tab(m, 3) // → embed (7)
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	m = tab(m, 1)
+	m = typeRunes(m, path)
+	m = sendKey(m, "enter")
+	m = saveVia(m)
+	data, _ := os.ReadFile(path)
+	if !strings.Contains(string(data), `\x1b[38;5;51msub\x1b[0m`) {
+		t.Errorf("tagline colour not embedded:\n%s", data)
 	}
 }
